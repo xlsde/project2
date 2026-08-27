@@ -1,0 +1,48 @@
+{
+  "summary": "Frontend-only Playwright testing of (A) login 419 fix and (B) LiveKit live-video integration for 'artirdim' (Laravel 12 + Inertia + Vue3). LiveKit is FULLY WORKING end-to-end on the canonical host: broadcaster (seller@test.com) previews fake camera, goes live, connects to wss://artirdim-q6z6do1b.livekit.cloud (room auction-1, LiveKit server 1.13.5, US Central A), publishes camera+mic, broadcast-live-badge visible, broadcast-error absent; a SEPARATE guest context on /auctions/antika-masa-saati-ve-vazo-seti-f5A0 auto-connects as viewer and RECEIVES THE REMOTE VIDEO (#liveVideo display:block, srcObject set, videoWidth 1280x720, track readyState 'live'), #stream-live-pill visible (inline-flex), viewer-count = 1. Token endpoint security verified from browser: role=viewer as guest -> 200 (configured:true, wss server_url, JWT), role=broadcaster as guest -> 403, role=broadcaster as owner seller -> 200. 'Yayını Bitir' + SweetAlert 'Evet, bitir' correctly ends the stream (badge gone, go-live restored, guest page shows liveVideo display:none, pill none). Login/419: WORKS on canonical host (1431a1a0-...): seller and admin both land on /seller/dashboard and /admin/dashboard, session persists on later navigations, no 419. BUT the 419 PAGE EXPIRED IS STILL REPRODUCIBLE on the host given in the request (https://modern-stack-app-8.preview.emergentagent.com) — login POST returns 419 and a full 419 PAGE EXPIRED screen is rendered.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Login from a non-canonical preview host (https://modern-stack-app-8.preview.emergentagent.com/login)",
+        "issue": "419 PAGE EXPIRED still occurs (reproduced twice with a fresh browser context). The page is served by modern-stack-app-8..., but AppServiceProvider does URL::forceRootUrl(config('app.url')) so the Inertia login POST is sent to https://1431a1a0-....preview.emergentagent.com/login — a CROSS-SITE POST. With SESSION_SAME_SITE default 'lax', Chrome does NOT send the artirdim-session / XSRF-TOKEN cookies on that cross-site POST, so VerifyCsrfToken aborts with 419 (curl, which ignores SameSite, succeeds on both hosts — proving it is a SameSite/cross-origin issue, not a session-domain issue). SESSION_DOMAIN=.preview.emergentagent.com alone does not fix this.",
+        "affected_selectors": ["[data-testid=\"login-submit\"]"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Auction detail / broadcast (minor, non-blocking)",
+        "issues": [
+          "Viewer side logs 'could not playback audio: NotAllowedError' (browser autoplay policy) — remote audio stays muted until a user gesture; consider a visible 'Sesi aç' unmute button (LiveKit room.startAudio()).",
+          "Several /storage/auctions/*.jpg image requests return 403 on the auction/dashboard pages (broken images)."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Fix the remaining 419 for non-canonical preview hosts: either stop pinning URL::forceRootUrl(APP_URL) (derive root URL from the trusted forwarded Host, keeping only URL::forceScheme('https')), or set APP_URL to the host actually being served, or as a workaround set SESSION_SAME_SITE=none (requires SESSION_SECURE_COOKIE=true) so cookies survive the cross-site POST.",
+    "Add a viewer-side 'unmute/start audio' control that calls room.startAudio() to satisfy Chrome autoplay policy.",
+    "Investigate 403 responses for /storage/auctions/*.jpg (broken auction images)."
+  ],
+  "critical_code_review_comments": [
+    "AppServiceProvider::boot() forceRootUrl(APP_URL) makes every form action absolute to one host; any other valid ingress hostname turns all POSTs into cross-site requests (root cause of the 419). Prefer trusting proxy headers (TrustProxies with '*') and only forcing the https scheme.",
+    "LiveKitTokenController correctly hides the API secret, gates broadcaster by owner (403 verified) and allows guest viewers; TTL 3600 and canPublish flags look right.",
+    "useLiveKit.connectRoom attaches pre-existing publications after connect — good; consider also handling RoomEvent.TrackPublished + room.startAudio() for autoplay."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "not tested (frontend-only request); /livekit/token exercised via browser: 3/3 expected outcomes correct",
+    "frontend": "LiveKit broadcaster+viewer+token security: 100% pass. Login fix: PASS on canonical host, FAIL (419) on modern-stack-app-8 host."
+  },
+  "seed_data_creation": "None. Auction 1 (antika-masa-saati-ve-vazo-seti-f5A0) was set live during tests and then properly ended via 'Yayını Bitir' (is_live back to false, verified from a guest context).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@test.com / password, seller@test.com / password (from /app/memory/test_credentials.md) — both valid",
+  "context_for_next_testing_agent": "Use the canonical host https://1431a1a0-493b-4c59-a0ac-5573f35098d7.preview.emergentagent.com for logged-in flows; logging in from modern-stack-app-8.preview.emergentagent.com currently 419s. Fake camera works in the automation browser (label fake_device_0) after context.grant_permissions(['camera','microphone'], origin=base) — no launch args needed. LiveKit flow: login seller -> /seller/auctions/<slug>/broadcast -> [data-testid=broadcast-preview] -> [data-testid=broadcast-go-live] (wait ~10s) -> assert [data-testid=broadcast-live-badge]; viewer: new browser context (guest) -> /auctions/<slug> wait ~10s -> evaluate document.getElementById('liveVideo').srcObject / videoWidth / #stream-live-pill display / [data-testid=viewer-count]. Always end the broadcast with [data-testid=broadcast-end] + .swal2-confirm so is_live is reset.",
+  "rca_of_the_issue": "419 root cause: URL::forceRootUrl(APP_URL) in app/Providers/AppServiceProvider.php forces all generated URLs (including the login form/Inertia POST target) to the APP_URL host. When the app is opened on a different valid preview hostname, the POST becomes cross-site; with session cookie SameSite=lax the session + XSRF cookies are omitted, CSRF verification fails and Laravel returns 419 PAGE EXPIRED. Verified: browser login on modern-stack-app-8 -> POST to 1431a1a0 host -> 419; same login on the canonical host -> 302 to dashboard; curl (SameSite-agnostic) succeeds from both hosts."
+}

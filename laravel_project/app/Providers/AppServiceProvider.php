@@ -30,15 +30,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Behind the preview ingress the forwarded Host/Proto are not trusted, so Laravel
-        // generated links/form actions against an internal cluster host over http://.
-        // Pin all generated URLs to the configured APP_URL.
-        $appUrl = config('app.url');
-        if ($appUrl) {
-            URL::forceRootUrl($appUrl);
-            if (str_starts_with($appUrl, 'https://')) {
-                URL::forceScheme('https');
-            }
+        // Preview/prod ingress HTTPS'i sonlandırır. Sadece şemayı https'e sabitliyoruz;
+        // host'u TrustProxies('*') üzerinden forwarded Host'tan türetiyoruz. Böylece hangi
+        // geçerli preview alan adında olursak olalım linkler/Inertia POST'ları AYNI-ORIGIN kalır
+        // (URL::forceRootUrl(APP_URL) çapraz-origin POST'a ve 419'a yol açıyordu — kaldırıldı).
+        if (str_starts_with((string) config('app.url'), 'https://')) {
+            URL::forceScheme('https');
         }
 
         // SEO varsayılanları (controller'lar sayfa bazında override eder)
