@@ -1,0 +1,29 @@
+{
+  "summary": "Frontend-only Playwright retest of the unified .pf-toast flash system (Laravel 12 + Inertia + Vue3 'artirdim') on the public preview URL. All 5 requested scenarios PASS: (1) admin user create (/admin/users/create, user-save-2) and delete (user-delete-{id} + .swal2-confirm) show ONLY a bottom-right .pf-toast, zero visible .pf-alert-success/.alert-success inline banners (verified on Users/Show landing page, Users/Index, /admin/auctions, /admin/orders); (2) profile 'Genel' save with EMPTY phone now submits (required removed, no native HTML5 bubble, validationMessage empty), no full page reload (window.__marker survived), URL stayed /profile, toast 'Profil bilgileriniz güncellendi.'; (3) category create then delete within toast lifetime → exactly 1 .pf-toast in #pf-toast-host (create toast superseded by delete toast); (4) contact form → single toast, no inline banner, and no toast reappearance while navigating /, /login, /admin/users, /admin/categories (plain navigation produces no toast at all); (5) profile Güvenlik e-mail change form → toast without page reload. Code review confirms no flash.success remains in the 6 targeted Vue pages, app-toast.js removes previous .pf-toast before rendering a new one, ProfileController phone rule is 'nullable', and the Vite build (public/build) is newer than the edited sources.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Pages/Profile/Show.vue — edit drawer footer", "issue": "Dirty-state chip still reads 'Kaydedilmedi' immediately after a successful save (preserveState keeps the dirty flag). Cosmetic state-sync polish, no functional impact.", "selector": ".pf-etab-foot / footer chip in edit drawer", "priority": "LOW"},
+      {"component": "Legacy resources/views/*.blade.php", "issue": "Legacy blade session('success') alerts still exist but are dead code (routes render via Inertia). Intentionally untouched per main agent note — not re-tested.", "selector": ".alert-success", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional polish: reset the 'Kaydedilmedi' dirty chip after a successful profile save.",
+    "Optional cleanup: delete the dead legacy blade views containing session('success') alerts to avoid confusion."
+  ],
+  "critical_code_review_comments": [
+    "app-toast.js now clears host.querySelectorAll('.pf-toast') before appending — satisfies the single-toast requirement; keep the router.on visit.only guard in app.js so partial reloads never re-emit flash.",
+    "No flash.success template blocks remain in Admin/Users/{Index,Show}.vue, Admin/Auctions/{Index,Show}.vue, Admin/Orders/{Index,Show}.vue (grep-verified) — toast is the single messaging channel."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend-only request)", "frontend": "100% (5/5 requested scenarios pass; 11/11 individual assertions pass)"},
+  "seed_data_creation": "Temp data created then removed: user TEST_QA_U3 (id 106, deleted via UI), category TEST_Kategori_QA9 (deleted). NOTE: during the single-toast test the delete button targeted the last row and hard-deleted the seeded 'Mücevherat' category; it was recreated via tinker (new id 9, slug mucevherat, sort_order 4, 0 auctions were attached). Admin profile name changed to 'Admin QA3' then restored to 'Admin'; admin phone left empty (was empty originally); admin e-mail re-saved as the same admin@test.com; password untouched.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@test.com / password (from /app/memory/test_credentials.md) — still valid after tests",
+  "context_for_next_testing_agent": "Login: login-email/login-password/login-submit. User create testids: user-name, user-email, user-username, tab 'Rol & Şifre', user-password (+ 2nd input[placeholder='••••••••']), submit user-save-2; delete user-delete-{id} + .swal2-confirm. Category: /admin/categories/create → category-name + category-save; delete admin-category-delete-{id} + .swal2-confirm (avoid btns.last — it may hit a seeded category). Profile: 'Profili Düzenle' → tabs Genel/Güvenlik; input[name=name], input[name=phone] (NOT required now), email form via 'Değiştir' → input[name=email] + input[name=confirmemailpassword] → 'Güncelle'. Toast assertions: document.querySelectorAll('#pf-toast-host .pf-toast'); inline assertion: visible '.pf-alert-success, .alert-success, .alert-au.success'. Full-reload detection via window.__marker.",
+  "rca_of_the_issue": "All three previously reported defects are fixed and verified live: inline banners removed from the 6 Inertia pages, phone made optional on both frontend (no required attr) and backend ('nullable' in ProfileController), and appToast now supersedes any existing toast so 'oluşturuldu' and 'silindi' can never coexist."
+}

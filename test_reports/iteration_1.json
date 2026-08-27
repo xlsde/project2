@@ -1,0 +1,38 @@
+{
+  "summary": "Frontend-only (Playwright) testing of the unified .pf-toast flash system in the Laravel 12 + Inertia + Vue3 'artirdim' app via public preview URL. Verified: admin login, category create+delete toasts (no stale/duplicate re-render), contact form toast (no inline banner, no reappearance on later navigation), plain SPA navigation produces no toast, profile update & password change (no full page reload, toast shown), admin user create/delete toasts. 5 of 6 requested scenarios pass. Two real issues found: (1) several Inertia pages still render an INLINE green success banner in addition to the toast (Admin/Users/Show duplicate confirmed live); (2) profile 'Genel' save is blocked by native HTML5 required validation on the empty GSM field (browser tooltip 'Please fill out this field.'), so a user without a phone cannot save the name at all until phone is filled.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Pages/Admin/Users/Show.vue (+ Users/Index.vue, Admin/Auctions/Index+Show.vue, Admin/Orders/Index+Show.vue)", "issue": "Inline flash banner still rendered (v-if=\"flash.success\" .pf-alert-success/.alert-success) so the user sees the message TWICE: inline green box AND the toast. Confirmed live on /admin/users/105 after create ('TEST_QA_User2 oluşturuldu.') and after edit ('Kullanıcı başarıyla güncellendi.') — banner + toast simultaneously. Requirement was to replace all HTML success messages with toasts.", "selector": ".pf-alert-success, .alert-success", "priority": "HIGH"},
+      {"component": "Pages/Profile/Show.vue — Genel form", "issue": "input[name=phone] has HTML `required`; admin user has no phone, so clicking 'Kaydet' only triggers the browser's native validation bubble ('Please fill out this field.') and the form never submits — no toast, no update. Native browser tooltip is also inconsistent with the app's .pf-error styling. Either make phone optional (frontend+backend, General/ProfileController line 253 requires it) or show an app-styled inline error.", "selector": "form input[name=\"phone\"]", "priority": "HIGH"},
+      {"component": "Toast host (#pf-toast-host)", "issue": "Toasts are not deduped/superseded: doing create then delete within the 2.6s toast lifetime leaves BOTH toasts stacked on screen at the same time ('... oluşturuldu.' + '... silindi.'). Verified with DOM tagging that the create toast is NOT re-created (original stale-flash bug IS fixed) — it is simply still alive. User's explicit requirement: add/delete toasts should never be on screen simultaneously → dismiss/replace previous toast when a new one is shown (or cap host to 1 toast).", "selector": "#pf-toast-host .pf-toast", "priority": "MEDIUM"},
+      {"component": "Profile security — password form", "issue": "Hint says 'En az 8 karakter, büyük/küçük harf ve sembol içermeli' and the strength meter shows red, yet submitting the weak password 'password' succeeded with 'Şifreniz başarıyla güncellendi.' — client hint/meter and server policy are inconsistent.", "selector": "input[name=\"password\"]", "priority": "MEDIUM"},
+      {"component": "Blade (non-Inertia) pages", "issue": "Legacy blade views still print inline @if(session('success')) alerts: seller/auctions/index, seller/sales/index+show, admin/auctions, admin/orders, admin/support/show, buyer/orders, general/balance, general/support. Not migrated to the toast system (not exercised in browser this run).", "selector": ".alert-success, .alert-au.success", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Profile edit drawer (Genel)", "issues": ["Native browser validation tooltip used instead of styled inline error", "Footer state chip still reads 'Kaydedilmedi' in the screenshot taken right after a successful save (dirty flag not reset because preserveState:true) — minor state-sync polish"]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Remove the remaining inline flash.success banners from Pages/Admin/Users/Show.vue, Pages/Admin/Users/Index.vue, Pages/Admin/Auctions/Index.vue+Show.vue, Pages/Admin/Orders/Index.vue+Show.vue (toast already covers them).",
+    "Make the profile phone field non-required (or surface an app-styled error) so name-only profile updates are possible; also relax/align backend validation in app/Http/Controllers/General/ProfileController.php:253.",
+    "Make appToast supersede/dismiss the previous toast so 'eklendi' and 'silindi' can never be visible together.",
+    "Align password strength hint with actual server rules (or enforce the stated policy).",
+    "Migrate legacy blade session('success') alerts to appToast for consistency."
+  ],
+  "critical_code_review_comments": [
+    "app.js flash->toast bridge correctly suppresses partial reloads (visit.only) — verified via DOM tagging that no stale toast is re-created; keep this guard.",
+    "Inertia flash props are shared as closures, so full visits always return fresh (empty) flash — no re-display on navigation, verified across /, /contact, /admin/users, /admin/categories.",
+    "Duplicate messaging channels (inline banner + toast) remain in 6 Inertia pages — single source of truth should be the toast."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend-only request)", "frontend": "83% (5/6 requested scenarios pass; profile 'Genel' save only works after filling the required phone field)"},
+  "seed_data_creation": "Temporary data created and cleaned up: categories TEST_Kategori_QA1/QA2/QA3 (all deleted), users TEST_QA_User (id 104) and TEST_QA_User2 (id 105) (both deleted). Admin profile: name restored to 'Admin'; NOTE admin phone was set to 5551112233 (was empty) and admin password re-saved as 'password' (unchanged value).",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@test.com / password (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Login testids: login-email, login-password, login-submit. Category create: /admin/categories/create → category-name + category-save; delete: admin-category-delete-{id} then .swal2-confirm. User create: /admin/users/create, password fields live under the 'Rol & Şifre' tab, submit button testid user-save-2; delete: user-delete-{id} + .swal2-confirm. Contact: contact-subject is a <select> (use select_option, values genel/teknik/...). Profile: click 'Profili Düzenle', form has input[name=name] and REQUIRED input[name=phone]; to detect full reload set window.__marker before submit and read it after. Toasts live in #pf-toast-host .pf-toast and auto-remove ~2.9s; tag existing toasts with an attribute before the next action to distinguish new vs still-alive toasts.",
+  "rca_of_the_issue": "Reported duplicate/stale toast bug is fixed: router.on('success') skips partial visits (visit.only) so flash props left over on the client are not re-emitted; DOM tagging proved the 'oluşturuldu' toast after a delete is the original element still inside its 2.6s lifetime, not a re-render. The remaining visible duplication comes from Vue pages that still render flash.success as an inline .pf-alert-success box on top of the toast. The profile-save failure is client-side HTML5 constraint validation on the required-but-empty phone input, which blocks @submit.prevent from ever firing."
+}
